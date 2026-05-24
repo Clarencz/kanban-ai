@@ -15,6 +15,20 @@
       "when": 1779368009896,
       "tag": "0001_marvelous_shriek",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1779526668125,
+      "tag": "0002_slimy_richard_fisk",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1779531809226,
+      "tag": "0003_green_invisible_woman",
+      "breakpoints": true
     }
   ]
 }

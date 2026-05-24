@@ -9,8 +9,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Plus, Loader2, Trash2, Edit2 } from "lucide-react";
 import { toast } from "sonner";
 
-const PROVIDER_TYPES = ["groq", "mistral", "gemini", "cohere", "github_models", "cerebras", "openrouter", "huggingface", "nvidia_nim", "llm7io"] as const;
-
 export default function AgentsPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -24,9 +22,10 @@ export default function AgentsPage() {
 
   const { data: agents, isLoading } = trpc.agents.list.useQuery();
   const { data: providers } = trpc.providers.list.useQuery();
+  const selectedProvider = providers?.find((p) => p.id === formData.providerId);
   const { data: availableModels } = trpc.providers.getAvailableModels.useQuery(
-    { type: (providers?.[formData.providerId - 1]?.type as any) || "groq" },
-    { enabled: !!formData.providerId && !!providers }
+    { type: (selectedProvider?.type as any) },
+    { enabled: !!selectedProvider },
   );
 
   const utils = trpc.useUtils();

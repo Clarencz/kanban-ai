@@ -1,7 +1,6 @@
 import { eq, and, desc, asc } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users, boards, columns, tasks, providers, agents, taskAgentExecutions, taskChats, type InsertBoard, type InsertColumn, type InsertTask, type InsertProvider, type InsertAgent, type InsertTaskAgentExecution, type InsertTaskChat } from "../drizzle/schema";
-import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -55,9 +54,6 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     if (user.role !== undefined) {
       values.role = user.role;
       updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = 'admin';
-      updateSet.role = 'admin';
     }
 
     if (!values.lastSignedIn) {
@@ -118,7 +114,15 @@ export async function getBoardWithColumns(boardId: number, userId: number) {
   const colsWithTasks = await Promise.all(
     cols.map(async (col) => {
       const colTasks = await db.select().from(tasks).where(eq(tasks.columnId, col.id)).orderBy(asc(tasks.position));
-      return { ...col, tasks: colTasks };
+      
+      const tasksWithExecutions = await Promise.all(
+        colTasks.map(async (task) => {
+          const executions = await db.select().from(taskAgentExecutions).where(eq(taskAgentExecutions.taskId, task.id)).orderBy(asc(taskAgentExecutions.executionOrder));
+          return { ...task, executions };
+        })
+      );
+      
+      return { ...col, tasks: tasksWithExecutions };
     })
   );
   
@@ -159,6 +163,20 @@ export async function updateColumn(columnId: number, data: Partial<InsertColumn>
   if (!db) throw new Error("Database not available");
   
   return db.update(columns).set(data).where(eq(columns.id, columnId));
+}
+
+export async function reorderColumns(boardId: number, columnIds: number[]) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return await db.transaction(async (tx) => {
+    for (let i = 0; i < columnIds.length; i++) {
+      await tx
+        .update(columns)
+        .set({ position: i })
+        .where(and(eq(columns.id, columnIds[i]), eq(columns.boardId, boardId)));
+    }
+  });
 }
 
 export async function deleteColumn(columnId: number) {
@@ -314,4 +332,65 @@ export async function getTaskChats(taskId: number) {
   if (!db) throw new Error("Database not available");
   
   return db.select().from(taskChats).where(eq(taskChats.taskId, taskId)).orderBy(asc(taskChats.createdAt));
+}
+
+// Triage queries
+export async function getTriageTasks(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  return db.select({
+    id: tasks.id,
+    columnId: tasks.columnId,
+    userId: tasks.userId,
+    title: tasks.title,
+    description: tasks.description,
+    priority: tasks.priority,
+    assignedAgentId: tasks.assignedAgentId,
+    status: tasks.status,
+    position: tasks.position,
+    createdAt: tasks.createdAt,
+    updatedAt: tasks.updatedAt,
+    boardName: boards.name,
+    boardId: boards.id,
+  }).from(tasks)
+    .innerJoin(columns, eq(tasks.columnId, columns.id))
+    .innerJoin(boards, eq(columns.boardId, boards.id))
+    .where(and(eq(tasks.userId, userId), eq(tasks.status, 'triage')))
+    .orderBy(desc(tasks.priority), asc(tasks.createdAt));
+}
+
+// All executions with task and agent info
+export async function getAllExecutions(userId: number, limit: number = 50, offset: number = 0, statusFilter?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const conditions = [eq(tasks.userId, userId)];
+  if (statusFilter) {
+    conditions.push(eq(taskAgentExecutions.status, statusFilter as any));
+  }
+  
+  return db.select({
+    id: taskAgentExecutions.id,
+    taskId: taskAgentExecutions.taskId,
+    agentId: taskAgentExecutions.agentId,
+    executionOrder: taskAgentExecutions.executionOrder,
+    inputContext: taskAgentExecutions.inputContext,
+    output: taskAgentExecutions.output,
+    status: taskAgentExecutions.status,
+    errorMessage: taskAgentExecutions.errorMessage,
+    executedAt: taskAgentExecutions.executedAt,
+    completedAt: taskAgentExecutions.completedAt,
+    taskTitle: tasks.title,
+    taskPriority: tasks.priority,
+    agentName: agents.name,
+    agentRole: agents.role,
+    agentModel: agents.modelName,
+  }).from(taskAgentExecutions)
+    .innerJoin(tasks, eq(taskAgentExecutions.taskId, tasks.id))
+    .innerJoin(agents, eq(taskAgentExecutions.agentId, agents.id))
+    .where(and(...conditions))
+    .orderBy(desc(taskAgentExecutions.executedAt))
+    .limit(limit)
+    .offset(offset);
 }

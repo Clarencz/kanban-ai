@@ -29,7 +29,7 @@ import type {
 
 // Extended types for UI
 export interface ColumnWithTasks extends Column {
-  tasks?: Task[];
+  tasks?: TaskWithExecutions[];
 }
 
 export interface BoardWithColumns extends Board {

@@ -1,0 +1,1 @@
+ALTER TABLE `taskAgentExecutions` MODIFY COLUMN `status` enum('pending','running','completed','failed','retrying') NOT NULL DEFAULT 'pending';

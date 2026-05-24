@@ -9,16 +9,31 @@ import Home from "./pages/Home";
 import BoardPage from "./pages/BoardPage";
 import AgentsPage from "./pages/AgentsPage";
 import ProvidersPage from "./pages/ProvidersPage";
+import TriagePage from "./pages/TriagePage";
+import ExecutionHistoryPage from "./pages/ExecutionHistoryPage";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
-      <Route path={"/"} component={Home} />
+      <Route path={"/"}>
+        {() => (
+          <DashboardLayout>
+            <Home />
+          </DashboardLayout>
+        )}
+      </Route>
       <Route path={"/boards/:boardId"}>
         {() => (
           <DashboardLayout>
             <BoardPage />
+          </DashboardLayout>
+        )}
+      </Route>
+      <Route path={"/triage"}>
+        {() => (
+          <DashboardLayout>
+            <TriagePage />
           </DashboardLayout>
         )}
       </Route>
@@ -33,6 +48,13 @@ function Router() {
         {() => (
           <DashboardLayout>
             <ProvidersPage />
+          </DashboardLayout>
+        )}
+      </Route>
+      <Route path={"/executions"}>
+        {() => (
+          <DashboardLayout>
+            <ExecutionHistoryPage />
           </DashboardLayout>
         )}
       </Route>

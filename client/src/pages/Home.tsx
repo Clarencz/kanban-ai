@@ -56,7 +56,7 @@ export default function Home() {
         <div className="text-center space-y-6">
           <div className="space-y-2">
             <Kanban className="w-16 h-16 mx-auto text-primary" />
-            <h1 className="text-4xl font-bold">Kanban AI Agents</h1>
+            <h1 className="text-4xl font-bold">Kanban AI</h1>
             <p className="text-lg text-muted-foreground">
               Collaborate with AI agents on your projects
             </p>

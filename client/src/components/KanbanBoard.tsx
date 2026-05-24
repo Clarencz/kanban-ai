@@ -1,8 +1,9 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { ColumnWithTasks } from "@shared/types";
 import KanbanColumn from "./KanbanColumn";
 import { toast } from "sonner";
+import { Reorder } from "framer-motion";
 
 interface KanbanBoardProps {
   boardId: number;
@@ -18,10 +19,25 @@ export default function KanbanBoard({
   const [columns, setColumns] = useState(initialColumns);
   const utils = trpc.useUtils();
 
+  // Update local state when initialColumns change (e.g. after a refetch)
+  useEffect(() => {
+    setColumns(initialColumns);
+  }, [initialColumns]);
+
   const moveTaskMutation = trpc.tasks.move.useMutation({
     onError: (error: { message: string }) => {
       toast.error(error.message);
       // Revert optimistic update
+      utils.boards.getWithColumns.invalidate({ boardId });
+    },
+  });
+
+  const reorderColumnsMutation = trpc.columns.reorder.useMutation({
+    onSuccess: () => {
+      utils.boards.getWithColumns.invalidate({ boardId });
+    },
+    onError: (error: { message: string }) => {
+      toast.error(error.message);
       utils.boards.getWithColumns.invalidate({ boardId });
     },
   });
@@ -63,16 +79,35 @@ export default function KanbanBoard({
     [columns, moveTaskMutation]
   );
 
+  const handleColumnReorder = (newColumns: ColumnWithTasks[]) => {
+    setColumns(newColumns);
+    reorderColumnsMutation.mutate({
+      boardId,
+      columnIds: newColumns.map((c) => c.id),
+    });
+  };
+
   return (
-    <div className="flex gap-6 pb-4">
+    <Reorder.Group
+      axis="x"
+      values={columns}
+      onReorder={handleColumnReorder}
+      className="flex gap-6 pb-4 overflow-x-auto min-h-[calc(100vh-12rem)]"
+    >
       {columns.map((column) => (
-        <KanbanColumn
+        <Reorder.Item
           key={column.id}
-          column={column}
-          onTaskMove={handleTaskMove}
-          onTaskSelect={onTaskSelect}
-        />
+          value={column}
+          className="flex-shrink-0"
+          dragTransition={{ bounceStiffness: 500, bounceDamping: 20 }}
+        >
+          <KanbanColumn
+            column={column}
+            onTaskMove={handleTaskMove}
+            onTaskSelect={onTaskSelect}
+          />
+        </Reorder.Item>
       ))}
-    </div>
+    </Reorder.Group>
   );
 }

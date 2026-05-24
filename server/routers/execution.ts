@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
-import { getTask, getAgent, getProvider, createTaskExecution, getTaskExecutions, createTaskChat, getTaskChats, updateTask } from "../db";
+import { getTask, getAgent, getProvider, createTaskExecution, getTaskExecutions, createTaskChat, getTaskChats, updateTask, getAllExecutions } from "../db";
 import { TRPCError } from "@trpc/server";
 import { callLLM } from "./llm";
 
@@ -156,6 +156,16 @@ export const executionRouter = router({
       }
 
       return getTaskExecutions(input.taskId);
+    }),
+
+  listAll: protectedProcedure
+    .input(z.object({
+      limit: z.number().min(1).max(100).default(50),
+      offset: z.number().min(0).default(0),
+      status: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      return getAllExecutions(ctx.user.id, input.limit, input.offset, input.status);
     }),
 
   testAgent: protectedProcedure

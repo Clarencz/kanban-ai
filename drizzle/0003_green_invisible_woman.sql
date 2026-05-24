@@ -1,0 +1,2 @@
+ALTER TABLE `providers` MODIFY COLUMN `type` enum('ai21','aion','alibaba','cohere','deepseek','gemini','mistral','xai','zai','cerebras','cloudflare','github_models','groq','huggingface','kilocode','llm7io','modelscope','nebius','nscale','nvidia_nim','ollama_cloud','openrouter','ovhcloud','siliconflow') NOT NULL;--> statement-breakpoint
+ALTER TABLE `tasks` MODIFY COLUMN `status` enum('triage','pending','in_progress','completed','blocked') NOT NULL DEFAULT 'pending';

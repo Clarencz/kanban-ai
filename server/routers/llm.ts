@@ -1,315 +1,165 @@
 import axios from "axios";
 import { TRPCError } from "@trpc/server";
-
-type ProviderType = "groq" | "mistral" | "gemini" | "cohere" | "github_models" | "cerebras" | "openrouter" | "huggingface" | "nvidia_nim" | "llm7io";
+import {
+  type ProviderId,
+  getProviderInfo,
+} from "../../shared/providerCatalog";
 
 interface LLMMessage {
   role: "system" | "user" | "assistant";
   content: string;
 }
 
+const DEFAULT_TEMPERATURE = 0.7;
+const DEFAULT_MAX_TOKENS = 2000;
+
 export async function callLLM(
-  provider: ProviderType,
+  provider: ProviderId,
   apiKey: string,
   model: string,
   messages: LLMMessage[],
-  systemPrompt?: string
+  systemPrompt?: string,
 ): Promise<string> {
+  const info = getProviderInfo(provider);
+
+  if (info.unsupportedRuntime) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `${info.name} runtime is not yet implemented`,
+    });
+  }
+
   const fullMessages = systemPrompt
     ? [{ role: "system" as const, content: systemPrompt }, ...messages]
     : messages;
 
   switch (provider) {
-    case "groq":
-      return callGroq(apiKey, model, fullMessages);
-    case "mistral":
-      return callMistral(apiKey, model, fullMessages);
     case "gemini":
-      return callGemini(apiKey, model, fullMessages);
+      return callGemini(info.baseUrl, apiKey, model, fullMessages);
     case "cohere":
-      return callCohere(apiKey, model, fullMessages);
-    case "github_models":
-      return callGitHubModels(apiKey, model, fullMessages);
-    case "cerebras":
-      return callCerebras(apiKey, model, fullMessages);
-    case "openrouter":
-      return callOpenRouter(apiKey, model, fullMessages);
+      return callCohere(info.baseUrl, apiKey, model, fullMessages);
     case "huggingface":
-      return callHuggingFace(apiKey, model, fullMessages);
-    case "nvidia_nim":
-      return callNVIDIANIM(apiKey, model, fullMessages);
-    case "llm7io":
-      return callLLM7io(apiKey, model, fullMessages);
+      // HF router endpoint is OpenAI-compatible; legacy /models/{name} is not.
+      return callOpenAiCompatible(provider, info.baseUrl, apiKey, model, fullMessages);
     default:
-      throw new TRPCError({ code: "BAD_REQUEST", message: `Unknown provider: ${provider}` });
+      if (!info.openAiCompatible) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `${info.name} is not OpenAI-compatible and has no dedicated adapter`,
+        });
+      }
+      return callOpenAiCompatible(provider, info.baseUrl, apiKey, model, fullMessages);
   }
 }
 
-async function callGroq(apiKey: string, model: string, messages: LLMMessage[]): Promise<string> {
+async function callOpenAiCompatible(
+  provider: ProviderId,
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  messages: LLMMessage[],
+): Promise<string> {
+  const info = getProviderInfo(provider);
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+
   try {
     const response = await axios.post(
-      "https://api.groq.com/openai/v1/chat/completions",
+      `${baseUrl.replace(/\/+$/, "")}/chat/completions`,
       {
         model,
         messages,
-        temperature: 0.7,
-        max_tokens: 2000,
+        temperature: DEFAULT_TEMPERATURE,
+        max_tokens: DEFAULT_MAX_TOKENS,
       },
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-      }
+      { headers },
     );
-    return response.data.choices[0]?.message?.content || "No response";
+    return response.data.choices?.[0]?.message?.content ?? "No response";
   } catch (error: any) {
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
-      message: `Groq API error: ${error.response?.data?.error?.message || error.message}`,
+      message: `${info.name} API error: ${
+        error.response?.data?.error?.message ||
+        error.response?.data?.message ||
+        error.message
+      }`,
     });
   }
 }
 
-async function callMistral(apiKey: string, model: string, messages: LLMMessage[]): Promise<string> {
+async function callGemini(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  messages: LLMMessage[],
+): Promise<string> {
   try {
     const response = await axios.post(
-      "https://api.mistral.ai/v1/chat/completions",
-      {
-        model,
-        messages,
-        temperature: 0.7,
-        max_tokens: 2000,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-    return response.data.choices[0]?.message?.content || "No response";
-  } catch (error: any) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: `Mistral API error: ${error.response?.data?.message || error.message}`,
-    });
-  }
-}
-
-async function callGemini(apiKey: string, model: string, messages: LLMMessage[]): Promise<string> {
-  try {
-    const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      `${baseUrl.replace(/\/+$/, "")}/models/${model}:generateContent?key=${apiKey}`,
       {
         contents: messages.map((msg) => ({
           role: msg.role === "assistant" ? "model" : "user",
           parts: [{ text: msg.content }],
         })),
         generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 2000,
+          temperature: DEFAULT_TEMPERATURE,
+          maxOutputTokens: DEFAULT_MAX_TOKENS,
         },
       },
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
+      { headers: { "Content-Type": "application/json" } },
     );
-    return response.data.candidates[0]?.content?.parts[0]?.text || "No response";
+    return response.data.candidates?.[0]?.content?.parts?.[0]?.text ?? "No response";
   } catch (error: any) {
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
-      message: `Gemini API error: ${error.response?.data?.error?.message || error.message}`,
+      message: `Gemini API error: ${
+        error.response?.data?.error?.message || error.message
+      }`,
     });
   }
 }
 
-async function callCohere(apiKey: string, model: string, messages: LLMMessage[]): Promise<string> {
+async function callCohere(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  messages: LLMMessage[],
+): Promise<string> {
   try {
     const response = await axios.post(
-      "https://api.cohere.ai/v1/chat",
+      `${baseUrl.replace(/\/+$/, "")}/chat`,
       {
         model,
         messages: messages.map((msg) => ({
-          role: msg.role === "assistant" ? "CHATBOT" : "USER",
-          message: msg.content,
+          role:
+            msg.role === "assistant"
+              ? "assistant"
+              : msg.role === "system"
+                ? "system"
+                : "user",
+          content: msg.content,
         })),
-        temperature: 0.7,
-        max_tokens: 2000,
+        temperature: DEFAULT_TEMPERATURE,
+        max_tokens: DEFAULT_MAX_TOKENS,
       },
       {
         headers: {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
-      }
-    );
-    return response.data.text || "No response";
-  } catch (error: any) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: `Cohere API error: ${error.response?.data?.message || error.message}`,
-    });
-  }
-}
-
-async function callGitHubModels(apiKey: string, model: string, messages: LLMMessage[]): Promise<string> {
-  try {
-    const response = await axios.post(
-      "https://models.inference.ai.azure.com/chat/completions",
-      {
-        model,
-        messages,
-        temperature: 0.7,
-        max_tokens: 2000,
       },
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-      }
     );
-    return response.data.choices[0]?.message?.content || "No response";
+    return (
+      response.data.message?.content?.[0]?.text ??
+      response.data.text ??
+      "No response"
+    );
   } catch (error: any) {
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
-      message: `GitHub Models API error: ${error.response?.data?.error?.message || error.message}`,
-    });
-  }
-}
-
-async function callCerebras(apiKey: string, model: string, messages: LLMMessage[]): Promise<string> {
-  try {
-    const response = await axios.post(
-      "https://api.cerebras.ai/v1/chat/completions",
-      {
-        model,
-        messages,
-        temperature: 0.7,
-        max_tokens: 2000,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-    return response.data.choices[0]?.message?.content || "No response";
-  } catch (error: any) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: `Cerebras API error: ${error.response?.data?.error?.message || error.message}`,
-    });
-  }
-}
-
-async function callOpenRouter(apiKey: string, model: string, messages: LLMMessage[]): Promise<string> {
-  try {
-    const response = await axios.post(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        model,
-        messages,
-        temperature: 0.7,
-        max_tokens: 2000,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-    return response.data.choices[0]?.message?.content || "No response";
-  } catch (error: any) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: `OpenRouter API error: ${error.response?.data?.error?.message || error.message}`,
-    });
-  }
-}
-
-async function callHuggingFace(apiKey: string, model: string, messages: LLMMessage[]): Promise<string> {
-  try {
-    const response = await axios.post(
-      `https://api-inference.huggingface.co/models/${model}`,
-      {
-        inputs: messages.map((m) => m.content).join("\n"),
-        parameters: {
-          max_length: 2000,
-          temperature: 0.7,
-        },
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-    return Array.isArray(response.data)
-      ? response.data[0]?.generated_text || "No response"
-      : response.data.generated_text || "No response";
-  } catch (error: any) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: `HuggingFace API error: ${error.response?.data?.error || error.message}`,
-    });
-  }
-}
-
-async function callNVIDIANIM(apiKey: string, model: string, messages: LLMMessage[]): Promise<string> {
-  try {
-    const response = await axios.post(
-      `https://integrate.api.nvidia.com/v1/chat/completions`,
-      {
-        model,
-        messages,
-        temperature: 0.7,
-        max_tokens: 2000,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-    return response.data.choices[0]?.message?.content || "No response";
-  } catch (error: any) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: `NVIDIA NIM API error: ${error.response?.data?.error?.message || error.message}`,
-    });
-  }
-}
-
-async function callLLM7io(apiKey: string, model: string, messages: LLMMessage[]): Promise<string> {
-  try {
-    const response = await axios.post(
-      "https://api.llm7.io/v1/chat/completions",
-      {
-        model,
-        messages,
-        temperature: 0.7,
-        max_tokens: 2000,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-    return response.data.choices[0]?.message?.content || "No response";
-  } catch (error: any) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: `LLM7.io API error: ${error.response?.data?.error?.message || error.message}`,
+      message: `Cohere API error: ${
+        error.response?.data?.message || error.message
+      }`,
     });
   }
 }

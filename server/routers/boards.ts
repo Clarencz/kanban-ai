@@ -10,16 +10,18 @@ import {
   createColumn,
   getBoardColumns,
   updateColumn,
+  reorderColumns,
   deleteColumn,
   createTask,
   getColumnTasks,
   getTask,
   updateTask,
   deleteTask,
+  getTriageTasks,
 } from "../db";
 
 const PRIORITY = ["low", "medium", "high", "critical"] as const;
-const STATUS = ["pending", "in_progress", "completed", "blocked"] as const;
+const STATUS = ["triage", "pending", "in_progress", "completed", "blocked"] as const;
 
 export const boardsRouter = router({
   list: protectedProcedure.query(({ ctx }) => getUserBoards(ctx.user.id)),
@@ -67,6 +69,9 @@ export const boardsRouter = router({
   delete: protectedProcedure
     .input(z.object({ boardId: z.number() }))
     .mutation(({ ctx, input }) => deleteBoard(input.boardId, ctx.user.id)),
+
+  getTriageTasks: protectedProcedure
+    .query(({ ctx }) => getTriageTasks(ctx.user.id)),
 });
 
 async function assertBoardOwnership(boardId: number, userId: number) {
@@ -118,6 +123,18 @@ export const columnsRouter = router({
         position: input.position,
       }),
     ),
+
+  reorder: protectedProcedure
+    .input(
+      z.object({
+        boardId: z.number(),
+        columnIds: z.array(z.number()),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertBoardOwnership(input.boardId, ctx.user.id);
+      return reorderColumns(input.boardId, input.columnIds);
+    }),
 
   delete: protectedProcedure
     .input(z.object({ columnId: z.number() }))

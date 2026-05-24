@@ -5,23 +5,22 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Loader2, Trash2, Edit2, CheckCircle2, AlertCircle } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Plus, Loader2, Trash2, Edit2, CheckCircle2, AlertCircle, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
-const PROVIDER_TYPES = [
-  { value: "groq", label: "Groq", description: "Ultra-fast LPU inference" },
-  { value: "mistral", label: "Mistral AI", description: "Open-weight models" },
-  { value: "gemini", label: "Google Gemini", description: "Multimodal AI" },
-  { value: "cohere", label: "Cohere", description: "Enterprise AI" },
-  { value: "github_models", label: "GitHub Models", description: "Free prototyping" },
-  { value: "cerebras", label: "Cerebras", description: "Fast inference" },
-  { value: "openrouter", label: "OpenRouter", description: "Model aggregator" },
-  { value: "huggingface", label: "HuggingFace", description: "Community models" },
-  { value: "nvidia_nim", label: "NVIDIA NIM", description: "Enterprise models" },
-  { value: "llm7io", label: "LLM7.io", description: "Multi-provider gateway" },
-] as const;
-
 export default function ProvidersPage() {
+  const { data: catalog } = trpc.providers.catalog.useQuery();
+  const catalogById = new Map((catalog ?? []).map((p) => [p.id, p]));
+  const PROVIDER_TYPES = (catalog ?? []).map((p) => ({
+    value: p.id,
+    label: p.name,
+    description: p.description,
+    country: p.country,
+    kind: p.kind,
+    unsupportedRuntime: p.unsupportedRuntime,
+    notes: p.notes,
+  }));
   const [isCreating, setIsCreating] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [selectedType, setSelectedType] = useState<string>("");
@@ -158,9 +157,15 @@ export default function ProvidersPage() {
                     </SelectTrigger>
                     <SelectContent>
                       {PROVIDER_TYPES.map((p) => (
-                        <SelectItem key={p.value} value={p.value}>
+                        <SelectItem key={p.value} value={p.value} disabled={p.unsupportedRuntime}>
                           <div>
-                            <div className="font-medium">{p.label}</div>
+                            <div className="font-medium flex items-center gap-2">
+                              <span>{p.label}</span>
+                              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{p.country}</span>
+                              {p.unsupportedRuntime && (
+                                <span className="text-[10px] uppercase tracking-wide text-amber-500">runtime n/a</span>
+                              )}
+                            </div>
                             <div className="text-xs text-muted-foreground">{p.description}</div>
                           </div>
                         </SelectItem>
@@ -224,14 +229,22 @@ export default function ProvidersPage() {
       {providers && providers.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {providers.map((provider) => {
-            const providerInfo = PROVIDER_TYPES.find(p => p.value === provider.type);
+            const info = catalogById.get(provider.type);
+            const models = info?.models ?? [];
             return (
               <Card key={provider.id}>
                 <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <CardTitle>{providerInfo?.label || provider.name}</CardTitle>
-                      <CardDescription>{providerInfo?.description}</CardDescription>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <CardTitle className="flex items-center gap-2 flex-wrap">
+                        <span className="truncate">{info?.name || provider.name}</span>
+                        {info?.country && (
+                          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                            {info.country}
+                          </span>
+                        )}
+                      </CardTitle>
+                      <CardDescription>{info?.description}</CardDescription>
                     </div>
                     {provider.isActive && (
                       <CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" />
@@ -239,13 +252,53 @@ export default function ProvidersPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div>
-                    <p className="text-xs text-muted-foreground">API Key Status</p>
-                    <p className="text-sm font-medium">
-                      {provider.apiKey === "***" ? "Configured" : "Not configured"}
-                    </p>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-muted-foreground">API key</p>
+                      <p className="text-sm font-medium">
+                        {provider.apiKey === "***" ? "Configured" : "Not configured"}
+                      </p>
+                    </div>
+                    {info?.unsupportedRuntime && (
+                      <span className="text-[10px] uppercase tracking-wide text-amber-500">
+                        runtime n/a
+                      </span>
+                    )}
                   </div>
-                  <div className="flex gap-2 pt-4">
+
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Sparkles className="w-3 h-3" />
+                      Models{models.length > 0 ? ` (${models.length})` : ""}
+                    </p>
+                    {models.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {models.slice(0, 8).map((m) => (
+                          <Badge
+                            key={m}
+                            variant="secondary"
+                            className="font-mono text-[10px] px-1.5 py-0"
+                          >
+                            {m}
+                          </Badge>
+                        ))}
+                        {models.length > 8 && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] px-1.5 py-0"
+                          >
+                            +{models.length - 8} more
+                          </Badge>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground italic">
+                        Loading…
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2 pt-2">
                     <Button
                       size="sm"
                       variant="outline"

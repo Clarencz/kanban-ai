@@ -1,4 +1,4 @@
-# Kanban AI Agents - Project TODO
+# Kanban AI - Project TODO
 
 ## Phase 1: Architecture & Data Models
 - [x] Define database schema for boards, columns, tasks, agents, providers, and chat history
